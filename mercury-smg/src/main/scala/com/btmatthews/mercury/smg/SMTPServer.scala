@@ -9,10 +9,13 @@ class SMTPServer(hostname: String, port: Integer) extends Actor with ActorLoggin
 	}
 
 	def receive = {
+		case IO.Listening(server, address) =>
+			log.info("Listening for SMTP traffic at " + address)
 		case IO.NewClient(server) =>
-			server.accept()
-		case IO.Read(rHandle, bytes) =>
-			rHandle.asSocket write bytes.compact
+			val connection = context.actorOf(Props[SMTPConnection])
+			server.accept()(connection)
+		case IO.Closed(server: IO.ServerHandle, cause) =>
+			log.info("Stopped")
 	}
 }
 
