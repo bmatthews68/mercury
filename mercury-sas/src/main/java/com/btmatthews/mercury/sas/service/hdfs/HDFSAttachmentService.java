@@ -1,12 +1,19 @@
 package com.btmatthews.mercury.sas.service.hdfs;
 
+import com.btmatthews.mercury.sas.dao.AttachmentDAO;
+import com.btmatthews.mercury.sas.dao.LogEntryDAO;
+import com.btmatthews.mercury.sas.domain.Attachment;
+import com.btmatthews.mercury.sas.domain.LogEntry;
+import com.btmatthews.mercury.sas.domain.LogType;
 import com.btmatthews.mercury.sas.service.AttachmentService;
+import com.btmatthews.mercury.sas.service.IdentifierService;
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.joda.time.DateTime;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -15,13 +22,24 @@ import java.io.OutputStream;
 public class HDFSAttachmentService implements AttachmentService {
 
     private final FileSystem fileSystem;
+    private IdentifierService identifierService;
+    private AttachmentDAO attachmentDao;
+    private LogEntryDAO logEntryDao;
 
-    public HDFSAttachmentService(final String... configurationFiles) throws IOException {
+    public HDFSAttachmentService(final IdentifierService identifierService, final AttachmentDAO attachmentDao, final LogEntryDAO logEntryDao, final String... configurationFiles) throws IOException {
+        this.identifierService = identifierService;
+        this.attachmentDao = attachmentDao;
+        this.logEntryDao = logEntryDao;
         final Configuration configuration = new Configuration();
         for (final String configurationFile : configurationFiles) {
             configuration.addResource(new Path(configurationFile));
         }
-        fileSystem = FileSystem.get(configuration);
+        this.fileSystem = FileSystem.get(configuration);
+    }
+
+    @Override
+    public Attachment getAttachmentMetadata(final String attachmentId) {
+        return attachmentDao.read(attachmentId);
     }
 
     @Override
@@ -55,7 +73,8 @@ public class HDFSAttachmentService implements AttachmentService {
     }
 
     @Override
-    public void uploadAttachment(final String attachmentId, final InputStream inputStream) throws IOException {
+    public Attachment storeAttachment(final String filename, final String contentType, final String contentEncoding, final InputStream inputStream) throws IOException {
+        final String attachmentId = identifierService.generateId();
         final Path path = new Path(attachmentId);
         if (!fileSystem.exists(path)) {
             final FSDataOutputStream outputStream = fileSystem.create(path);
@@ -65,6 +84,12 @@ public class HDFSAttachmentService implements AttachmentService {
                 outputStream.close();
             }
         }
+        final Attachment attachment = new Attachment(attachmentId, filename, contentType, contentEncoding, 0L, DateTime.now());
+        attachmentDao.create(attachment);
+        final String logEntryId = identifierService.generateId();
+        final LogEntry logEntry = new LogEntry(logEntryId, LogType.CREATED_ATTACHMENT, null, attachment, DateTime.now());
+        logEntryDao.create(logEntry);
+        return attachment;
     }
 
     @Override
